@@ -1,0 +1,541 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>NEU Library — Admin Dashboard</title>
+  <link href="https://fonts.googleapis.com/css2?family=Playfair+Display:wght@600;700&family=DM+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="./css/styles.css">
+</head>
+<body>
+<canvas id="confetti-canvas"></canvas>
+<div id="welcome-wall">
+  <div class="wlc-box">
+    <div class="wlc-stripe"></div>
+    <img class="wlc-img" src="./assets/neu-library-building.png" alt="NEU Library Building">
+    <div class="wlc-body">
+      <div class="wlc-title">Welcome to <span>NEU Library!</span> 🎉</div>
+      <div class="wlc-sub">New Era University Library Management System<br>Smart · Real-time · Efficient · Secure</div>
+      <button class="wlc-close" onclick="closeWelcome()" title="Close">&#x2715;</button>
+    </div>
+  </div>
+</div>
+<div id="auth-wall">
+  <div class="auth-particles" id="auth-particles"></div>
+  <div class="auth-box">
+    <div class="auth-logo"><div class="auth-icon">&#x1F4DA;</div><h1>New Era University<br>Library System</h1><p>Secure Admin Portal v2.0</p></div>
+    <div class="auth-tabs"><button class="auth-tab active" onclick="switchTab('login')">Sign In</button><button class="auth-tab" onclick="switchTab('register')">Create Account</button></div>
+    <div id="auth-err" class="auth-err"><span>&#x26A0;</span><span id="auth-err-msg">Invalid credentials</span></div>
+    <div class="auth-form active" id="form-login">
+      <div class="auth-fg"><label>Username or Email</label><div class="auth-inp-wrap"><span class="auth-inp-ico">&#x1F464;</span><input class="auth-inp" type="text" id="l-user" placeholder="Enter your username" autocomplete="username"></div></div>
+      <div class="auth-fg"><label>Password</label><div class="auth-inp-wrap"><span class="auth-inp-ico">&#x1F512;</span><input class="auth-inp" type="password" id="l-pass" placeholder="Enter your password" autocomplete="current-password" onkeydown="if(event.key==='Enter')doLogin()"><span class="auth-inp-eye" onclick="togglePw('l-pass',this)">&#x1F441;</span></div></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:18px"><label style="display:flex;align-items:center;gap:6px;cursor:pointer;color:rgba(255,255,255,.5);font-size:12px"><input type="checkbox" id="l-rem" style="accent-color:var(--blue-glow)"> Remember me</label><span style="color:rgba(255,255,255,.35);font-size:12px;cursor:pointer" onclick="showAuthErr('Contact your system administrator to reset your password.')">Forgot password?</span></div>
+      <button class="auth-btn" onclick="doLogin()" id="login-btn">Sign In &#x2192;</button>
+      <div class="auth-hint">Default: <strong>admin / admin123</strong> &nbsp;&#xB7;&nbsp; <strong>librarian / lib123</strong></div>
+    </div>
+    <div class="auth-form" id="form-register">
+      <div class="auth-fg"><label>Full Name</label><div class="auth-inp-wrap"><span class="auth-inp-ico">&#x1F464;</span><input class="auth-inp" type="text" id="r-name" placeholder="Your full name"></div></div>
+      <div class="auth-fg"><label>Email</label><div class="auth-inp-wrap"><span class="auth-inp-ico">&#x2709;</span><input class="auth-inp" type="email" id="r-email" placeholder="you@neu.edu.ph"></div></div>
+      <div class="auth-fg"><label>Username</label><div class="auth-inp-wrap"><span class="auth-inp-ico">&#x1FAA6;</span><input class="auth-inp" type="text" id="r-user" placeholder="Choose a username"></div></div>
+      <div class="auth-fg"><label>Password</label><div class="auth-inp-wrap"><span class="auth-inp-ico">&#x1F512;</span><input class="auth-inp" type="password" id="r-pass" placeholder="Min. 6 characters"><span class="auth-inp-eye" onclick="togglePw('r-pass',this)">&#x1F441;</span></div></div>
+      <div class="auth-fg"><label>Confirm Password</label><div class="auth-inp-wrap"><span class="auth-inp-ico">&#x1F512;</span><input class="auth-inp" type="password" id="r-pass2" placeholder="Repeat password" onkeydown="if(event.key==='Enter')doRegister()"></div></div>
+      <div style="margin-bottom:16px"><label style="font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:1px;color:rgba(255,255,255,.5);display:block;margin-bottom:9px">Role</label>
+        <div class="auth-role"><div class="role-card selected" onclick="selectRole(this)" data-role="Admin"><div class="ri2">&#x1F451;</div><div class="rl2">Admin</div><div class="rd2">Full access</div></div><div class="role-card" onclick="selectRole(this)" data-role="Librarian"><div class="ri2">&#x1F4D6;</div><div class="rl2">Librarian</div><div class="rd2">Manage books</div></div></div>
+      </div>
+      <button class="auth-btn" onclick="doRegister()">Create Account &#x2192;</button>
+    </div>
+  </div>
+</div>
+<!-- SIDEBAR -->
+<aside class="sidebar">
+  <div class="sl">
+    <div class="badge">Admin Panel</div>
+    <h1>New Era University<br>Library System</h1>
+    <p>Management Platform v2.0</p>
+  </div>
+  <div class="snav">
+    <div class="ns">
+      <div class="nl">Main</div>
+      <div class="ni active" onclick="nav('dashboard',this)"><span class="ic">⊞</span>Dashboard</div>
+      <div class="ni" onclick="nav('attendance',this)"><span class="ic">📡</span>Live Attendance<span class="nb" id="nb-in">0</span></div>
+    </div>
+    <div class="ns">
+      <div class="nl">Library</div>
+      <div class="ni" onclick="nav('books',this)"><span class="ic">📚</span>Book Management</div>
+      <div class="ni" onclick="nav('students',this)"><span class="ic">👤</span>Students</div>
+      <div class="ni" onclick="nav('borrowing',this)"><span class="ic">↩</span>Borrowing &amp; Returns<span class="nb" id="nb-ov">0</span></div>
+    </div>
+    <div class="ns">
+      <div class="nl">Insights</div>
+      <div class="ni" onclick="nav('analytics',this)"><span class="ic">📊</span>Analytics</div>
+      <div class="ni" onclick="nav('reports',this)"><span class="ic">🖨</span>Reports &amp; Export</div>
+    </div>
+    <div class="ns">
+      <div class="nl">System</div>
+      <div class="ni" onclick="nav('rfid',this)"><span class="ic">📶</span>RFID / QR Config</div>
+      <div class="ni" onclick="nav('settings',this)"><span class="ic">⚙</span>Settings</div>
+      <div class="ni" onclick="nav('accounts',this)"><span class="ic">👥</span>Accounts</div>
+    </div>
+  </div>
+  <div class="sf">
+    <div class="av">LA</div>
+    <div class="av-i"><p>Librarian Admin</p><span>admin@neu.edu.ph</span></div>
+  </div>
+</aside>
+
+<!-- MAIN -->
+<main class="main">
+  <div class="topbar">
+    <div class="tb-l">
+      <h2 id="ptitle">Dashboard Overview</h2>
+      <p id="pdate">Loading...</p>
+    </div>
+    <div class="tb-r">
+      <div class="sp"><div class="sd"></div>RFID Online</div>
+      <div class="sp"><div class="sd b"></div>QR Active</div>
+      <div class="clk" id="clk">--:--:--</div>
+    </div>
+  </div>
+
+  <!-- ══ DASHBOARD ══ -->
+  <div class="page active" id="page-dashboard">
+    <div class="tkw">
+      <div class="lbdg">Live</div>
+      <div class="tkt"><span class="tki" id="ticker">Initializing real-time feed...</span></div>
+    </div>
+    <div class="pnl" style="margin-bottom:14px">
+      <div class="ph">
+        <div class="pt">📅 Library Events</div>
+        <div style="display:flex;gap:8px">
+          <div class="pa" onclick="xpdf('events')">🖨 PDF</div>
+          <div class="pa" style="background:linear-gradient(90deg,var(--blue-deep),var(--blue-mid));color:#fff;padding:4px 12px;border-radius:6px;font-size:11px" onclick="openEvMod()">+ New Event</div>
+        </div>
+      </div>
+      <div id="ev-grid" class="ev-grid"></div>
+    </div>
+    <div class="sg">
+      <div class="sc bl"><div class="sc-ico">👥</div><div class="sc-lb">Total Visitors Today</div><div class="sc-v" id="sv">0</div><div class="sc-s"><span class="up" id="sv2">↑ 0%</span> vs yesterday</div><button class="sc-pdf" onclick="xpdf('visitors')">🖨 PDF</button></div>
+      <div class="sc gr"><div class="sc-ico">🏛</div><div class="sc-lb">Currently Inside</div><div class="sc-v" id="si">0</div><div class="sc-s">of <strong>80</strong> seats</div><button class="sc-pdf" onclick="xpdf('inside')">🖨 PDF</button></div>
+      <div class="sc sa"><div class="sc-ico">📖</div><div class="sc-lb">Books Borrowed Today</div><div class="sc-v" id="sb3">0</div><div class="sc-s"><span class="up" id="sb4">↑ 0</span> from yesterday</div><button class="sc-pdf" onclick="xpdf('borrowed')">🖨 PDF</button></div>
+      <div class="sc re"><div class="sc-ico">⚠</div><div class="sc-lb">Overdue Books</div><div class="sc-v" id="so">0</div><div class="sc-s"><span class="dn" id="so2">0</span> need attention</div><button class="sc-pdf" onclick="xpdf('overdue')">🖨 PDF</button></div>
+    </div>
+    <div style="display:grid;grid-template-columns:1fr 1fr 310px;gap:13px;margin-bottom:16px">
+      <div class="pnl">
+        <div class="ph"><div class="pt">Recent Check-ins</div><div class="pa" onclick="nav('attendance',document.querySelector('[onclick*=attendance]'))">View All →</div></div>
+        <table class="tbl"><thead><tr><th>Student</th><th>Time In</th><th>Method</th><th>Purpose</th></tr></thead><tbody id="d-ci"></tbody></table>
+      </div>
+      <div class="pnl">
+        <div class="ph"><div class="pt">Today's Peak Hours</div><div class="pa" onclick="nav('analytics',document.querySelector('[onclick*=analytics]'))">Analytics →</div></div>
+        <div class="bc" id="barchart"></div>
+        <div style="margin-top:9px" id="d-pur"></div>
+      </div>
+      <div class="pnl">
+        <div class="ph"><div class="pt">Seat Capacity</div></div>
+        <div style="display:flex;flex-direction:column;align-items:center;padding:5px 0">
+          <div class="rw">
+            <svg width="100" height="100" viewBox="0 0 100 100">
+              <circle cx="50" cy="50" r="40" fill="none" stroke="#e8e0cc" stroke-width="10"/>
+              <circle id="ring" cx="50" cy="50" r="40" fill="none" stroke="url(#rg)" stroke-width="10" stroke-dasharray="251.3" stroke-dashoffset="251.3" stroke-linecap="round"/>
+              <defs><linearGradient id="rg" x1="0%" y1="0%" x2="100%" y2="0%"><stop offset="0%" stop-color="#1a2f5e"/><stop offset="100%" stop-color="#2ecc71"/></linearGradient></defs>
+            </svg>
+            <div class="rc2"><span class="rp" id="rpct">0%</span><span class="rl">Used</span></div>
+          </div>
+          <div style="margin-top:9px;width:100%">
+            <div class="li"><div style="display:flex;align-items:center"><div class="ld" style="background:var(--blue-deep)"></div>Occupied</div><strong id="locc">0</strong></div>
+            <div class="li"><div style="display:flex;align-items:center"><div class="ld" style="background:var(--green)"></div>Available</div><strong id="lavl">80</strong></div>
+            <div class="li"><div style="display:flex;align-items:center"><div class="ld" style="background:var(--sand)"></div>Total</div><strong>80</strong></div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="g2">
+      <div class="pnl">
+        <div class="ph"><div class="pt">Quick Actions</div></div>
+        <div class="ag">
+          <div class="ab" onclick="nav('rfid',document.querySelector('[onclick*=rfid]'))"><div class="ab-i">📡</div><div class="ab-l">Register RFID Card</div></div>
+          <div class="ab gr" onclick="openBorrowMod()"><div class="ab-i">📚</div><div class="ab-l">Borrow Book</div></div>
+          <div class="ab re" onclick="openReturnMod()"><div class="ab-i">↩</div><div class="ab-l">Return Book</div></div>
+          <div class="ab sa" onclick="nav('reports',document.querySelector('[onclick*=reports]'))"><div class="ab-i">🖨</div><div class="ab-l">Export PDF Report</div></div>
+        </div>
+      </div>
+      <div class="pnl">
+        <div class="ph"><div class="pt">Recent Borrowings</div><div class="pa" onclick="nav('borrowing',document.querySelector('[onclick*=borrowing]'))">View All →</div></div>
+        <div id="d-bor"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ ATTENDANCE ══ -->
+  <div class="page" id="page-attendance">
+    <div class="pgh"><h3>Live Attendance Monitoring</h3><p>Real-time tracking — updates automatically as students check in and out</p></div>
+    <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:13px;max-width:660px;margin-bottom:18px">
+      <div class="sc gr"><div class="sc-lb">Inside Now</div><div class="sc-v" id="ai">0</div><button class="sc-pdf" style="opacity:1;pointer-events:all" onclick="xpdf('inside')">🖨 PDF</button></div>
+      <div class="sc bl"><div class="sc-lb">Total Today</div><div class="sc-v" id="at">0</div><button class="sc-pdf" style="opacity:1;pointer-events:all" onclick="xpdf('visitors')">🖨 PDF</button></div>
+      <div class="sc sa"><div class="sc-lb">Available Seats</div><div class="sc-v" id="aseat">80</div></div>
+    </div>
+    <div class="g2">
+      <div class="pnl">
+        <div class="ph"><div class="pt">🟢 Currently Inside</div><div class="pa" id="ain-l">0 students</div></div>
+        <div id="inside-list" style="max-height:380px;overflow-y:auto"></div>
+      </div>
+      <div class="pnl">
+        <div class="ph"><div class="pt">Today's Full History</div><div class="pa" onclick="xpdf('att-full')">🖨 Export PDF</div></div>
+        <div class="sbar">
+          <input type="text" placeholder="🔍 Search student..." id="aq" oninput="renderAttHist()">
+          <select id="amf" onchange="renderAttHist()"><option value="">All Methods</option><option>RFID</option><option>QR</option></select>
+          <select id="apf" onchange="renderAttHist()"><option value="">All Purposes</option><option>Study</option><option>Research</option><option>Thesis</option><option>Reading</option><option>Borrowing</option></select>
+        </div>
+        <div class="tw" style="max-height:300px;overflow-y:auto">
+          <table class="dtbl"><thead><tr><th>Student</th><th>Time In</th><th>Time Out</th><th>Duration</th><th>Method</th><th>Purpose</th></tr></thead><tbody id="att-tb"></tbody></table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ BOOKS ══ -->
+  <div class="page" id="page-books">
+    <div class="pgh"><h3>Book Management</h3><p>Add, edit, delete books and manage inventory</p></div>
+    <div class="sg mb18">
+      <div class="sc bl"><div class="sc-lb">Total Titles</div><div class="sc-v" id="bkt">0</div><button class="sc-pdf" style="opacity:1;pointer-events:all" onclick="xpdf('books')">🖨 PDF</button></div>
+      <div class="sc gr"><div class="sc-lb">Total Copies</div><div class="sc-v" id="bkc">0</div></div>
+      <div class="sc sa"><div class="sc-lb">Available</div><div class="sc-v" id="bka">0</div></div>
+      <div class="sc re"><div class="sc-lb">On Loan</div><div class="sc-v" id="bkl">0</div></div>
+    </div>
+    <div class="g2l">
+      <div class="pnl">
+        <div class="ph"><div class="pt" id="bkft">Add New Book</div></div>
+        <div class="fst">
+          <input type="hidden" id="bk-eid">
+          <div class="fg"><label>Title *</label><input id="bk-ti" placeholder="Book title"></div>
+          <div class="fg"><label>Author *</label><input id="bk-au" placeholder="Author name"></div>
+          <div class="fg"><label>ISBN</label><input id="bk-is" placeholder="978-XXXXXXXXXX"></div>
+          <div class="fg"><label>Category</label>
+            <select id="bk-ca"><option>Mathematics</option><option>Science</option><option>Engineering</option><option>Literature</option><option>History</option><option>Computer Science</option><option>Social Science</option><option>Reference</option><option>Philippine Studies</option></select>
+          </div>
+          <div class="f2">
+            <div class="fg"><label>Total Copies</label><input type="number" id="bk-tc" value="1" min="1"></div>
+            <div class="fg"><label>Available</label><input type="number" id="bk-ac" value="1" min="0"></div>
+          </div>
+          <div class="fg"><label>Description</label><textarea id="bk-de" placeholder="Brief description..."></textarea></div>
+          <div class="fr"><button class="btn btn-p" onclick="saveBook()">💾 Save Book</button><button class="btn btn-o" onclick="clearBkForm()">Clear</button></div>
+        </div>
+      </div>
+      <div class="pnl">
+        <div class="ph"><div class="pt">Book Inventory</div><div class="pa" onclick="xpdf('books')">🖨 Export PDF</div></div>
+        <div class="sbar">
+          <input type="text" placeholder="🔍 Search title, author, ISBN..." id="bkq" oninput="renderBooks()">
+          <select id="bkcf" onchange="renderBooks()"><option value="">All Categories</option><option>Mathematics</option><option>Science</option><option>Engineering</option><option>Literature</option><option>History</option><option>Computer Science</option><option>Social Science</option><option>Reference</option><option>Philippine Studies</option></select>
+          <select id="bksf" onchange="renderBooks()"><option value="">All Status</option><option value="av">Available</option><option value="lo">Low Stock</option><option value="ou">Out of Stock</option></select>
+        </div>
+        <div class="tw"><table class="dtbl"><thead><tr><th>ID</th><th>Title</th><th>Author</th><th>Category</th><th>Copies</th><th>Status</th><th>Actions</th></tr></thead><tbody id="bk-tb2"></tbody></table></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ STUDENTS ══ -->
+  <div class="page" id="page-students">
+    <div class="pgh"><h3>Student Management</h3><p>Register students, link RFID cards, manage profiles and access</p></div>
+    <div class="sg mb18">
+      <div class="sc bl"><div class="sc-lb">Total Students</div><div class="sc-v" id="stt">0</div><button class="sc-pdf" style="opacity:1;pointer-events:all" onclick="xpdf('students')">🖨 PDF</button></div>
+      <div class="sc gr"><div class="sc-lb">Active</div><div class="sc-v" id="sta">0</div></div>
+      <div class="sc sa"><div class="sc-lb">RFID Linked</div><div class="sc-v" id="stl">0</div></div>
+      <div class="sc re"><div class="sc-lb">Inactive</div><div class="sc-v" id="sti">0</div></div>
+    </div>
+    <div class="g2l">
+      <div class="pnl">
+        <div class="ph"><div class="pt" id="stft">Register Student</div></div>
+        <div class="fst">
+          <input type="hidden" id="st-eid">
+          <div class="fg"><label>Student ID *</label><input id="st-id" placeholder="e.g. 2024-10001"></div>
+          <div class="fg"><label>Full Name *</label><input id="st-nm" placeholder="Last, First Middle"></div>
+          <div class="fg"><label>Email</label><input type="email" id="st-em" placeholder="student@neu.edu.ph"></div>
+          <div class="f2">
+            <div class="fg"><label>Course</label><select id="st-co"><option>BSCS</option><option>BSIT</option><option>BSEd</option><option>BSBA</option><option>BSN</option><option>BSCE</option><option>BSME</option><option>AB Comm</option><option>BSCrim</option></select></div>
+            <div class="fg"><label>Year Level</label><select id="st-yr"><option>1st Year</option><option>2nd Year</option><option>3rd Year</option><option>4th Year</option></select></div>
+          </div>
+          <div class="fg"><label>RFID UID</label><input id="st-rf" placeholder="e.g. A3:4F:2B:1C" onclick="this.classList.add('sa2')" onblur="this.classList.remove('sa2')"></div>
+          <div class="fr"><button class="btn btn-p" onclick="saveStudent()">💾 Save</button><button class="btn btn-o" onclick="clearStForm()">Clear</button></div>
+        </div>
+      </div>
+      <div class="pnl">
+        <div class="ph"><div class="pt">Student Registry</div><div class="pa" onclick="xpdf('students')">🖨 Export PDF</div></div>
+        <div class="sbar">
+          <input type="text" placeholder="🔍 Search name, ID, course..." id="stq" oninput="renderStudents()">
+          <select id="stcf" onchange="renderStudents()"><option value="">All Courses</option><option>BSCS</option><option>BSIT</option><option>BSEd</option><option>BSBA</option><option>BSN</option><option>BSCE</option><option>BSME</option><option>AB Comm</option></select>
+          <select id="stsf" onchange="renderStudents()"><option value="">All Status</option><option value="active">Active</option><option value="inactive">Inactive</option></select>
+        </div>
+        <div class="tw"><table class="dtbl"><thead><tr><th>ID</th><th>Name</th><th>Course</th><th>Year</th><th>RFID</th><th>Status</th><th>Actions</th></tr></thead><tbody id="st-tb2"></tbody></table></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ══ BORROWING ══ -->
+  <div class="page" id="page-borrowing">
+    <div class="pgh"><h3>Borrowing &amp; Returns</h3><p>Process loans, returns, and track overdue items in real time</p></div>
+    <div class="fr mb14">
+      <button class="btn btn-g" onclick="openBorrowMod()">📚 New Borrow</button>
+      <button class="btn btn-r" onclick="openReturnMod()">↩ Process Return</button>
+      <button class="btn btn-s" onclick="xpdf('borrowings')">🖨 Export PDF</button>
+    </div>
+    <div class="sg mb18">
+      <div class="sc bl"><div class="sc-lb">Active Loans</div><div class="sc-v" id="bra">0</div><button class="sc-pdf" style="opacity:1;pointer-events:all" onclick="xpdf('active-loans')">🖨 PDF</button></div>
+      <div class="sc re"><div class="sc-lb">Overdue</div><div class="sc-v" id="bro">0</div><button class="sc-pdf" style="opacity:1;pointer-events:all" onclick="xpdf('overdue')">🖨 PDF</button></div>
+      <div class="sc gr"><div class="sc-lb">Returned Today</div><div class="sc-v" id="brt">0</div></div>
+      <div class="sc sa"><div class="sc-lb">Total Transactions</div><div class="sc-v" id="brtt">0</div></div>
+    </div>
+    <div class="pnl">
+      <div class="ph"><div class="pt">Borrowing Records</div></div>
+      <div class="sbar">
+        <input type="text" placeholder="🔍 Search student, book..." id="brq" oninput="renderBorrowings()">
+        <select id="brsf" onchange="renderBorrowings()"><option value="">All Status</option><option value="borrowed">Active</option><option value="overdue">Overdue</option><option value="returned">Returned</option></select>
+      </div>
+      <div class="tw"><table class="dtbl"><thead><tr><th>Trans. ID</th><th>Student</th><th>Book</th><th>Borrow Date</th><th>Due Date</th><th>Return Date</th><th>Status</th><th>Fine</th><th>Actions</th></tr></thead><tbody id="br-tb"></tbody></table></div>
+    </div>
+  </div>
+
+  <!-- ══ ANALYTICS ══ -->
+  <div class="page" id="page-analytics">
+    <div class="pgh"><h3>Analytics &amp; Insights</h3><p>Library usage patterns, trends, and behavior — live data</p></div>
+    <div class="sg mb18">
+      <div class="sc bl"><div class="sc-lb">Avg Daily Visitors</div><div class="sc-v" id="an1">0</div><button class="sc-pdf" style="opacity:1;pointer-events:all" onclick="xpdf('analytics')">🖨 PDF</button></div>
+      <div class="sc gr"><div class="sc-lb">Peak Day</div><div class="sc-v" id="an2">0</div></div>
+      <div class="sc sa"><div class="sc-lb">Busiest Hour</div><div class="sc-v" id="an3">—</div></div>
+      <div class="sc re"><div class="sc-lb">Top Book</div><div class="sc-v" id="an4" style="font-size:13px;margin-top:8px;line-height:1.4">—</div></div>
+    </div>
+    <div class="g2 mb14">
+      <div class="pnl"><div class="ph"><div class="pt">Most Visited Days</div><div class="pa" onclick="xpdf('an-days')">🖨 PDF</div></div><div id="an-days"></div></div>
+      <div class="pnl"><div class="ph"><div class="pt">Purpose of Visit</div><div class="pa" onclick="xpdf('an-purpose')">🖨 PDF</div></div><div id="an-pur"></div></div>
+    </div>
+    <div class="g2">
+      <div class="pnl"><div class="ph"><div class="pt">Most Borrowed Books</div><div class="pa" onclick="xpdf('an-books')">🖨 PDF</div></div><div id="an-books"></div></div>
+      <div class="pnl"><div class="ph"><div class="pt">Most Active Students</div><div class="pa" onclick="xpdf('an-students')">🖨 PDF</div></div><div id="an-stus"></div></div>
+    </div>
+  </div>
+
+  <!-- ══ REPORTS ══ -->
+  <div class="page" id="page-reports">
+    <div class="pgh"><h3>Reports &amp; Export</h3><p>Generate, preview, and export reports as PDF or CSV</p></div>
+    <div class="pnl mb18" style="padding:15px 18px">
+      <div class="fr">
+        <div class="fg" style="flex:1"><label>Date From</label><input type="date" id="rf"></div>
+        <div class="fg" style="flex:1"><label>Date To</label><input type="date" id="rt"></div>
+        <div class="fg" style="flex:1"><label>Report Type</label>
+          <select id="rtype">
+            <option value="daily">Daily Visit Report</option>
+            <option value="monthly">Monthly Attendance</option>
+            <option value="borrowed">Borrowed Books</option>
+            <option value="overdue">Overdue Books</option>
+            <option value="purpose">Purpose Statistics</option>
+            <option value="inventory">Book Inventory</option>
+            <option value="students">Student Registry</option>
+          </select>
+        </div>
+        <button class="btn btn-p" onclick="genReport()" style="margin-top:18px">Generate</button>
+      </div>
+    </div>
+    <div class="rg2">
+      <div class="rc3" onclick="showReport('daily')"><div class="ri">📅</div><div class="rt2">Daily Visit Report</div><div class="rd">All check-ins for today</div></div>
+      <div class="rc3" onclick="showReport('monthly')"><div class="ri">🗓</div><div class="rt2">Monthly Attendance</div><div class="rd">Aggregated monthly stats</div></div>
+      <div class="rc3" onclick="showReport('borrowed')"><div class="ri">📚</div><div class="rt2">Borrowed Books</div><div class="rd">All borrowing transactions</div></div>
+      <div class="rc3" onclick="showReport('overdue')"><div class="ri">⚠️</div><div class="rt2">Overdue Books</div><div class="rd">All overdue with fines</div></div>
+      <div class="rc3" onclick="showReport('purpose')"><div class="ri">📊</div><div class="rt2">Purpose Statistics</div><div class="rd">Visit purpose breakdown</div></div>
+      <div class="rc3" onclick="showReport('inventory')"><div class="ri">🗃</div><div class="rt2">Inventory Report</div><div class="rd">Full book inventory</div></div>
+    </div>
+    <div class="pnl" id="rpt-preview" style="display:none">
+      <div class="ph">
+        <div class="pt" id="rpt-title">Report Preview</div>
+        <div class="fr">
+          <button class="btn btn-r btn-sm" onclick="exportRptPDF()">🖨 Save as PDF</button>
+          <button class="btn btn-g btn-sm" onclick="exportCSV()">📄 Download CSV</button>
+          <button class="btn btn-o btn-sm" onclick="document.getElementById('rpt-preview').style.display='none'">✕ Close</button>
+        </div>
+      </div>
+      <div style="font-size:12px;color:#8a7d6a;margin-bottom:9px">
+        <strong>New Era University Library</strong> &nbsp;·&nbsp; Generated: <span id="rpt-ts"></span>
+      </div>
+      <div class="tw"><table class="dtbl" id="rpt-tbl"><thead id="rpt-th"></thead><tbody id="rpt-bd"></tbody></table></div>
+    </div>
+  </div>
+
+  <!-- ══ RFID ══ -->
+  <div class="page" id="page-rfid">
+    <div class="pgh"><h3>RFID &amp; QR Configuration</h3><p>Manage hardware, link RFID cards to students, configure scanner settings</p></div>
+    <div class="g2 mb14">
+      <div class="pnl">
+        <div class="ph"><div class="pt">📡 RFID Reader Status</div></div>
+        <div class="tr"><div class="trl"><p>RFID Reader</p><span>RC522 — COM3 (USB)</span></div><label class="tog"><input type="checkbox" checked onchange="toast('RFID Reader '+(this.checked?'enabled':'disabled'),'s')"><span class="tsl"></span></label></div>
+        <div class="tr"><div class="trl"><p>Auto Checkout on Re-tap</p><span>Tap again to log exit time</span></div><label class="tog"><input type="checkbox" checked><span class="tsl"></span></label></div>
+        <div class="tr"><div class="trl"><p>Beep on Successful Scan</p><span>Audio confirmation</span></div><label class="tog"><input type="checkbox" checked><span class="tsl"></span></label></div>
+        <div class="tr"><div class="trl"><p>Block Unregistered Cards</p><span>Reject unknown UIDs</span></div><label class="tog"><input type="checkbox"><span class="tsl"></span></label></div>
+        <div style="margin-top:13px;padding:10px;background:var(--beige);border-radius:8px;font-size:12px">
+          <strong>Last Scan:</strong><br><span id="rfid-last" style="color:var(--green);font-weight:600">Waiting for tap...</span>
+        </div>
+        <div style="margin-top:8px;padding:10px;background:var(--beige);border-radius:8px;font-size:12px">
+          <strong>Scans Today:</strong> <span id="rfid-cnt" style="font-weight:700;color:var(--blue-deep)">0</span>
+        </div>
+      </div>
+      <div class="pnl">
+        <div class="ph"><div class="pt">📱 QR Scanner Status</div></div>
+        <div class="tr"><div class="trl"><p>QR Scanner</p><span>Webcam-based scanner active</span></div><label class="tog"><input type="checkbox" checked onchange="toast('QR Scanner '+(this.checked?'enabled':'disabled'),'s')"><span class="tsl"></span></label></div>
+        <div class="tr"><div class="trl"><p>Token Expiry</p><span>QR codes auto-expire after set time</span></div><label class="tog"><input type="checkbox" checked><span class="tsl"></span></label></div>
+        <div class="tr"><div class="trl"><p>Show Expiry Countdown</p><span>Display timer on student app</span></div><label class="tog"><input type="checkbox" checked><span class="tsl"></span></label></div>
+        <div class="fg" style="margin-top:13px"><label>Token Expiry (seconds)</label><input type="number" value="30" min="10" max="120" id="qrexp"></div>
+        <div class="fg" style="margin-top:9px"><label>Scanner Resolution</label><select><option>720p</option><option>1080p</option><option>480p</option></select></div>
+        <button class="btn btn-p" style="margin-top:11px;width:100%" onclick="toast('QR settings saved!','s')">Save QR Settings</button>
+      </div>
+    </div>
+    <div class="pnl">
+      <div class="ph"><div class="pt">Link RFID Card to Student</div><div class="pa" onclick="xpdf('rfid')">🖨 Export PDF</div></div>
+      <div class="fr mb14">
+        <div class="fg" style="flex:1"><label>Student (ID or Name)</label><input id="rfid-stu" placeholder="Type to search..."></div>
+        <div class="fg" style="flex:1"><label>RFID UID (tap card on reader)</label><input id="rfid-uid" placeholder="e.g. A3:4F:2B:1C" onclick="this.classList.add('sa2')" onblur="this.classList.remove('sa2')"></div>
+        <button class="btn btn-p" onclick="linkRFID()" style="margin-top:18px">🔗 Link Card</button>
+      </div>
+      <div class="tw"><table class="dtbl"><thead><tr><th>Student ID</th><th>Name</th><th>Course</th><th>RFID UID</th><th>Status</th><th>Linked At</th><th>Actions</th></tr></thead><tbody id="rfid-tb"></tbody></table></div>
+    </div>
+  </div>
+
+  <!-- ══ SETTINGS ══ -->
+  <div class="page" id="page-settings">
+    <div class="pgh"><h3>System Settings</h3><p>Configure library info, rules, hours, and notifications</p></div>
+    <div class="g2">
+      <div>
+        <div class="pnl mb14">
+          <div class="ss">
+            <h4>🏛 Library Information</h4>
+            <div class="fst">
+              <div class="fg"><label>Library Name</label><input value="New Era University Library"></div>
+              <div class="fg"><label>Address</label><input value="No. 9 Central Avenue, New Era, Quezon City"></div>
+              <div class="fg"><label>Contact Email</label><input type="email" value="library@neu.edu.ph"></div>
+              <div class="fg"><label>Contact Number</label><input value="(02) 7273-6345"></div>
+              <div class="fg"><label>Total Seat Capacity</label><input type="number" value="80" id="cfg-s"></div>
+              <button class="btn btn-p" onclick="toast('Library info saved!','s')">Save Changes</button>
+            </div>
+          </div>
+        </div>
+        <div class="pnl">
+          <div class="ss">
+            <h4>⏰ Library Hours</h4>
+            <div class="fst">
+              <div class="f2">
+                <div class="fg"><label>Opening Time</label><input type="time" value="07:00"></div>
+                <div class="fg"><label>Closing Time</label><input type="time" value="19:00"></div>
+              </div>
+              <div class="fg"><label>Days Open</label><select><option>Monday – Saturday</option><option>Monday – Friday</option><option>All Days</option></select></div>
+              <div class="fg"><label>Holidays / Closures</label><textarea placeholder="Dec 25 - Christmas Day&#10;Jan 1 - New Year's Day"></textarea></div>
+              <button class="btn btn-p" onclick="toast('Hours saved!','s')">Save Hours</button>
+            </div>
+          </div>
+        </div>
+      </div>
+      <div>
+        <div class="pnl mb14">
+          <div class="ss">
+            <h4>📚 Borrowing Rules</h4>
+            <div class="fst">
+              <div class="f2">
+                <div class="fg"><label>Max Books / Student</label><input type="number" value="3" min="1" max="10" id="cfg-m"></div>
+                <div class="fg"><label>Loan Duration (days)</label><input type="number" value="7" min="1" max="30" id="cfg-l"></div>
+              </div>
+              <div class="f2">
+                <div class="fg"><label>Overdue Fine / Day (₱)</label><input type="number" value="5" min="0" id="cfg-f"></div>
+                <div class="fg"><label>Renewal Limit</label><input type="number" value="2" min="0" max="5"></div>
+              </div>
+              <div class="fg"><label>Grace Period (days)</label><input type="number" value="1" min="0"></div>
+              <button class="btn btn-p" onclick="toast('Borrowing rules saved!','s')">Save Rules</button>
+            </div>
+          </div>
+        </div>
+        <div class="pnl">
+          <div class="ss">
+            <h4>🔔 Notifications</h4>
+            <div class="tr"><div class="trl"><p>Overdue Email Alerts</p><span>Auto-notify students of overdue</span></div><label class="tog"><input type="checkbox" checked><span class="tsl"></span></label></div>
+            <div class="tr"><div class="trl"><p>Capacity Alert at 90%</p><span>Notify when nearly full</span></div><label class="tog"><input type="checkbox" checked><span class="tsl"></span></label></div>
+            <div class="tr"><div class="trl"><p>Daily Summary Email</p><span>End-of-day admin report</span></div><label class="tog"><input type="checkbox"><span class="tsl"></span></label></div>
+            <div class="tr"><div class="trl"><p>New Book Arrival Alerts</p><span>Notify students of new titles</span></div><label class="tog"><input type="checkbox" checked><span class="tsl"></span></label></div>
+            <div class="fg" style="margin-top:11px"><label>Admin Email</label><input type="email" value="admin@neu.edu.ph"></div>
+            <button class="btn btn-p" style="margin-top:10px" onclick="toast('Notifications saved!','s')">Save Notifications</button>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+  <div class="page" id="page-accounts">
+    <div class="pgh"><h3>Account Management</h3><p>Manage admin accounts, roles, passwords, and session settings</p></div>
+    <div id="sess-bar-wrap"></div>
+    <div class="g2" style="align-items:start">
+      <div>
+        <div class="pnl mb14"><div class="ph"><div class="pt">&#x1F464; My Profile</div></div><div id="my-profile-content"></div></div>
+        <div class="pnl mb14"><div class="ph"><div class="pt">&#x1F512; Change Password</div></div><div class="fst"><div class="fg"><label>Current Password</label><input type="password" id="cp-cur" placeholder="Current password"></div><div class="fg"><label>New Password</label><input type="password" id="cp-new" placeholder="Min. 6 characters"></div><div class="fg"><label>Confirm New Password</label><input type="password" id="cp-con" placeholder="Repeat new password"></div><button class="btn btn-p" onclick="changePassword()">&#x1F512; Update Password</button></div></div>
+        <div class="pnl"><div class="ph"><div class="pt">&#x2699; Profile Settings</div></div><div class="fst"><div class="fg"><label>Display Name</label><input type="text" id="pf-name" placeholder="Your name"></div><div class="fg"><label>Email</label><input type="email" id="pf-email" placeholder="your@neu.edu.ph"></div><button class="btn btn-p" onclick="saveProfile()">&#x1F4BE; Save Profile</button></div></div>
+      </div>
+      <div>
+        <div class="pnl mb14"><div class="ph"><div class="pt">&#x1F465; All Admin Accounts</div><div class="pa" onclick="xpdf('accounts')">&#x1F5A8; Export PDF</div></div><div class="tw"><table class="acc-tbl"><thead><tr><th>Name</th><th>Username</th><th>Email</th><th>Role</th><th>Status</th><th>Last Login</th><th>Actions</th></tr></thead><tbody id="acct-tb"></tbody></table></div></div>
+        <div class="pnl"><div class="ph"><div class="pt">&#x2795; Add New Account</div></div><div class="fst"><div class="f2"><div class="fg"><label>Full Name *</label><input id="na-name" placeholder="Full name"></div><div class="fg"><label>Username *</label><input id="na-user" placeholder="Username"></div></div><div class="fg"><label>Email *</label><input type="email" id="na-email" placeholder="email@neu.edu.ph"></div><div class="f2"><div class="fg"><label>Password *</label><input type="password" id="na-pass" placeholder="Min 6 chars"></div><div class="fg"><label>Role</label><select id="na-role"><option>Admin</option><option>Librarian</option><option>Viewer</option></select></div></div><button class="btn btn-p" onclick="addAccount()">&#x2795; Add Account</button></div></div>
+      </div>
+    </div>
+  </div>
+  <div class="mov" id="mod-ev">
+    <div class="mod" style="max-width:560px">
+      <div class="mhd"><h4 id="ev-mod-title">📅 Create New Event</h4><span class="mcl" onclick="closeMod('mod-ev')">&#x2715;</span></div>
+      <div class="fst">
+        <input type="hidden" id="ev-eid">
+        <div class="fg"><label>Event Name *</label><input id="ev-nm" placeholder="e.g. Book Character Cosplay Day"></div>
+        <div class="fg"><label>Description</label><textarea id="ev-ds" placeholder="Tell students what this event is about..." style="min-height:60px"></textarea></div>
+        <div class="f2">
+          <div class="fg"><label>Start Date &amp; Time *</label><input type="datetime-local" id="ev-st"></div>
+          <div class="fg"><label>End Date &amp; Time *</label><input type="datetime-local" id="ev-en"></div>
+        </div>
+        <div class="f2">
+          <div class="fg"><label>Organizer / Host</label><input id="ev-or" placeholder="e.g. NEU Library Committee"></div>
+          <div class="fg"><label>Location</label><input id="ev-lo" placeholder="e.g. NEU Library Ground Floor"></div>
+        </div>
+        <div class="ev-form-upload" onclick="document.getElementById('ev-img-inp').click()" id="ev-upload-area">
+          <input type="file" id="ev-img-inp" accept="image/*" onchange="previewEvImg(this)">
+          <div id="ev-upload-inner"><div class="uico">&#x1F5BC;</div><div class="ulbl">Click to upload event cover / illustration<br><span style="font-size:10px">JPG, PNG, GIF supported</span></div></div>
+        </div>
+      </div>
+      <div class="mft">
+        <button class="btn btn-o" onclick="closeMod('mod-ev')">Cancel</button>
+        <button class="btn btn-p" onclick="saveEvent()">&#x1F4BE; Save Event</button>
+      </div>
+    </div>
+  </div>
+</main>
+
+<!-- MODALS -->
+<div class="mov" id="mod-bor">
+  <div class="mod">
+    <div class="mhd"><h4>📚 Borrow a Book</h4><span class="mcl" onclick="closeMod('mod-bor')">✕</span></div>
+    <div class="fst">
+      <div class="fg"><label>Student *</label><select id="mb-st"><option value="">-- Select Student --</option></select></div>
+      <div class="fg"><label>Book *</label><select id="mb-bk"><option value="">-- Select Book --</option></select></div>
+      <div class="fg"><label>Due Date</label><input type="date" id="mb-dd"></div>
+      <div class="fg"><label>Notes</label><input id="mb-no" placeholder="Optional..."></div>
+    </div>
+    <div class="mft">
+      <button class="btn btn-o" onclick="closeMod('mod-bor')">Cancel</button>
+      <button class="btn btn-g" onclick="procBorrow()">✅ Confirm Borrow</button>
+    </div>
+  </div>
+</div>
+
+<div class="mov" id="mod-ret">
+  <div class="mod">
+    <div class="mhd"><h4>↩ Process Return</h4><span class="mcl" onclick="closeMod('mod-ret')">✕</span></div>
+    <div class="fst">
+      <div class="fg"><label>Active Transaction *</label><select id="mr-tx" onchange="showRetDet()"><option value="">-- Select Transaction --</option></select></div>
+      <div id="mr-det" style="background:var(--beige);border-radius:8px;padding:11px;font-size:13px;display:none"></div>
+    </div>
+    <div class="mft">
+      <button class="btn btn-o" onclick="closeMod('mod-ret')">Cancel</button>
+      <button class="btn btn-r" onclick="procReturn()">↩ Confirm Return</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast-el"></div>
+<script src="./js/app.js"></script>
+  <script type="module" src="./firebase-config.js"></script>
+</body>
+</html>

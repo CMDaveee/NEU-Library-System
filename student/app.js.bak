@@ -1,0 +1,1072 @@
+// app.js
+import { auth, db } from "./firebase-config.js";
+import {
+  onAuthStateChanged,
+  signInWithEmailAndPassword,
+  createUserWithEmailAndPassword,
+  updateProfile,
+  signOut,
+  setPersistence,
+  browserLocalPersistence,
+  browserSessionPersistence,
+} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import {
+  collection, doc, getDoc, getDocs, addDoc, updateDoc, setDoc,
+  query, where, orderBy, limit, serverTimestamp, onSnapshot,
+} from "https://www.gstatic.com/firebasejs/10.12.0/firebase-firestore.js";
+import { PURPOSES, logVisit, getMyVisits, buildQRPayload, renderQR } from "./visit.js";
+
+// ═══════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════
+let STATE = {
+  user:      null,
+  student:   null,
+  loans:     [],
+  history:   [],
+  books:     [],
+  events:    [],
+  visits:    [],
+  activeTab: "home",
+  accountTab: "loans",
+  bookFilter: "all",
+  bookSearch: "",
+  bookView:  "grid",
+  selectedBook: null,
+  visitPurpose: null,
+  visitCustom: "",
+  qrActive: false,
+  qrTimer: null,
+  qrSeconds: 300,
+  borrowBook: null,
+};
+
+// ═══════════════════════════════════════════════
+// BOOT
+// ═══════════════════════════════════════════════
+document.addEventListener("DOMContentLoaded", () => {
+  onAuthStateChanged(auth, async (user) => {
+    if (user) {
+      STATE.user = user;
+      await loadStudentProfile(user);
+      showApp();
+      loadAll();
+    } else {
+      STATE.user = null;
+      STATE.student = null;
+      showLogin();
+    }
+  });
+  bindLoginForm();
+  bindRegisterForm();
+  bindNav();
+  bindVisitModal();
+  bindBookSearch();
+  bindAccountTabs();
+});
+
+// ═══════════════════════════════════════════════
+// AUTH
+// ═══════════════════════════════════════════════
+function bindLoginForm() {
+  const form      = g("login-form");
+  const pwInput   = g("login-pass");
+  const eyeBtn    = g("login-eye");
+  const checkWrap = g("remember-wrap");
+  const checkBox  = g("remember-box");
+  let rememberMe  = false;
+
+  // Restore saved email
+  const saved = localStorage.getItem("neu_saved_email");
+  if (saved) { g("login-email").value = saved; checkBox.classList.add("on"); rememberMe = true; }
+
+  eyeBtn.addEventListener("click", () => {
+    const show = pwInput.type === "password";
+    pwInput.type = show ? "text" : "password";
+    eyeBtn.textContent = show ? "🙈" : "👁️";
+  });
+
+  checkWrap.addEventListener("click", () => {
+    rememberMe = !rememberMe;
+    checkBox.classList.toggle("on", rememberMe);
+  });
+
+  form.addEventListener("submit", async (e) => {
+    e.preventDefault();
+    const email    = g("login-email").value.trim();
+    const password = g("login-pass").value;
+    if (!email || !password) return;
+
+    const btn = g("login-btn");
+    btn.innerHTML = '<span class="spinner"></span>';
+    btn.disabled = true;
+
+    try {
+      await setPersistence(auth, rememberMe ? browserLocalPersistence : browserSessionPersistence);
+      await signInWithEmailAndPassword(auth, email, password);
+      if (rememberMe) localStorage.setItem("neu_saved_email", email);
+      else localStorage.removeItem("neu_saved_email");
+      // Reset button — onAuthStateChanged will handle screen switch
+      btn.innerHTML = "Sign In &nbsp;→";
+      btn.disabled = false;
+    } catch (err) {
+      btn.innerHTML = "Sign In &nbsp;→";
+      btn.disabled = false;
+      const msgs = {
+        "auth/user-not-found":     "No account found with this email.",
+        "auth/wrong-password":     "Incorrect password. Please try again.",
+        "auth/invalid-email":      "Please enter a valid email address.",
+        "auth/invalid-credential": "Invalid email or password. Check your credentials.",
+        "auth/too-many-requests":  "Too many attempts. Please wait a moment.",
+        "auth/user-disabled":      "This account has been disabled.",
+        "auth/network-request-failed": "Network error. Check your connection.",
+      };
+      const msg = msgs[err.code] || ("Login failed (" + (err.code || err.message) + ")");
+      showToast(msg, "error");
+      console.error("Auth error:", err.code, err.message);
+    }
+  });
+}
+
+async function loadStudentProfile(user) {
+  try {
+    let snap = await getDoc(doc(db, "students", user.uid));
+    if (snap.exists()) {
+      STATE.student = { id: snap.id, ...snap.data() };
+    } else {
+      // Fallback: query by email
+      const q = query(collection(db, "students"), where("email", "==", user.email));
+      const res = await getDocs(q);
+      if (!res.empty) STATE.student = { id: res.docs[0].id, ...res.docs[0].data() };
+      else STATE.student = { id: user.uid, name: user.displayName || user.email.split("@")[0], email: user.email };
+    }
+  } catch (e) {
+    STATE.student = { id: user.uid, name: user.displayName || user.email.split("@")[0], email: user.email };
+  }
+}
+
+async function handleLogout() {
+  await signOut(auth);
+  STATE = { ...STATE, user: null, student: null, loans: [], history: [], books: [], events: [], visits: [] };
+  showLogin();
+}
+
+// ═══════════════════════════════════════════════
+// SHOW/HIDE SCREENS
+// ═══════════════════════════════════════════════
+function showLogin() {
+  g("screen-login").classList.add("active");
+  g("screen-app").classList.remove("active");
+  g("login-btn").innerHTML = "Sign In &nbsp;→";
+  g("login-btn").disabled = false;
+}
+
+function showApp() {
+  g("screen-login").classList.remove("active");
+  g("screen-app").classList.add("active");
+  renderHeader();
+  navTo("home");
+  // Show visit purpose pop-up after a short delay
+  setTimeout(() => openVisitModal(true), 500);
+}
+
+// ═══════════════════════════════════════════════
+// NAVIGATION
+// ═══════════════════════════════════════════════
+function bindNav() {
+  document.querySelectorAll(".nav-item").forEach(el => {
+    el.addEventListener("click", () => navTo(el.dataset.tab));
+  });
+  g("btn-logout").addEventListener("click", handleLogout);
+}
+
+function navTo(tab) {
+  STATE.activeTab = tab;
+  document.querySelectorAll(".tab-page").forEach(p => p.classList.remove("active"));
+  document.querySelectorAll(".nav-item").forEach(n => n.classList.toggle("active", n.dataset.tab === tab));
+  const page = g("page-" + tab);
+  if (page) page.classList.add("active");
+
+  const titles = { home: "Dashboard", books: "Book Catalog", visit: "Visit Library", account: "My Account" };
+  g("header-title").textContent = titles[tab] || "NEU Library";
+
+  if (tab === "home")    renderHome();
+  if (tab === "books")   renderBooks();
+  if (tab === "visit")   renderVisitPage();
+  if (tab === "account") renderAccount();
+}
+
+// ═══════════════════════════════════════════════
+// LOAD ALL DATA
+// ═══════════════════════════════════════════════
+async function loadAll() {
+  await Promise.allSettled([loadLoans(), loadBooks(), loadEvents(), loadVisitHistory()]);
+  renderHome();
+}
+
+async function loadLoans() {
+  if (!STATE.student) return;
+  const sid = STATE.student.studentId || STATE.student.id;
+  try {
+    // Active loans
+    const aq = query(collection(db, "loans"), where("studentId", "==", sid), where("returned", "==", false));
+    const as = await getDocs(aq);
+    STATE.loans = as.docs.map(d => ({ id: d.id, ...d.data() }));
+
+    // History
+    const hq = query(collection(db, "loans"), where("studentId", "==", sid), where("returned", "==", true));
+    const hs = await getDocs(hq);
+    STATE.history = hs.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => {
+      const ta = a.returnDate?.toDate?.() || new Date(0);
+      const tb = b.returnDate?.toDate?.() || new Date(0);
+      return tb - ta;
+    });
+  } catch (e) { console.warn("Loans:", e.message); }
+}
+
+async function loadBooks() {
+  try {
+    const snap = await getDocs(collection(db, "books"));
+    STATE.books = snap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => a.title?.localeCompare(b.title));
+  } catch (e) { console.warn("Books:", e.message); }
+}
+
+async function loadEvents() {
+  try {
+    const snap = await getDocs(query(collection(db, "events"), limit(10)));
+    STATE.events = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  } catch (e) { console.warn("Events:", e.message); }
+}
+
+async function loadVisitHistory() {
+  if (!STATE.student) return;
+  const sid = STATE.student.studentId || STATE.student.id;
+  STATE.visits = await getMyVisits(sid, 30).catch(() => []);
+}
+
+// ═══════════════════════════════════════════════
+// HEADER
+// ═══════════════════════════════════════════════
+function renderHeader() {
+  g("header-title").textContent = "Dashboard";
+}
+
+// ═══════════════════════════════════════════════
+// HOME SCREEN
+// ═══════════════════════════════════════════════
+function renderHome() {
+  const s = STATE.student || {};
+  const name = s.name || s.email || "Student";
+
+  // Welcome banner
+  const h = new Date().getHours();
+  const gr = h < 12 ? "Good morning" : h < 17 ? "Good afternoon" : "Good evening";
+  const initials = name.split(" ").map(w => w[0] || "").join("").slice(0, 2).toUpperCase();
+  g("wb-avatar").textContent = initials;
+  g("wb-greeting").textContent = gr + ",";
+  g("wb-name").textContent = name;
+  g("wb-meta").textContent = [s.course, s.yearLevel].filter(Boolean).join(" · ") || s.studentId || "";
+
+  // Stats
+  const overdue = STATE.loans.filter(l => {
+    const d = l.dueDate?.toDate?.();
+    return d && d < new Date();
+  }).length;
+  const dueSoon = STATE.loans.filter(l => {
+    const d = l.dueDate?.toDate?.();
+    if (!d) return false;
+    const diff = Math.ceil((d - new Date()) / 86400000);
+    return diff >= 0 && diff <= 3;
+  }).length;
+  g("stat-borrowed").textContent = STATE.loans.length;
+  g("stat-overdue").textContent  = overdue;
+  g("stat-duesoon").textContent  = dueSoon;
+
+  // Events
+  renderEventsHome();
+  // Loans
+  renderLoansHome();
+}
+
+function renderEventsHome() {
+  const el = g("events-list");
+  if (!STATE.events.length) { el.innerHTML = '<div class="empty-state"><div class="empty-icon">📭</div><div class="empty-text">No events scheduled</div></div>'; return; }
+
+  el.innerHTML = STATE.events.slice(0, 3).map(ev => {
+    let dateStr = "—", dayStr = "—", monStr = "—";
+    const evDate = ev.date ? new Date(ev.date) : ev.startDate ? new Date(ev.startDate) : null;
+    if (evDate && !isNaN(evDate)) {
+      dayStr = String(evDate.getDate()).padStart(2, "0");
+      monStr = evDate.toLocaleString("en", { month: "short" }).toUpperCase();
+    }
+    return `
+    <div class="event-item">
+      <div class="event-date-box">
+        <span class="eday">${dayStr}</span>
+        <span class="emon">${monStr}</span>
+      </div>
+      <div class="event-body">
+        <div class="event-title">${esc(ev.title || ev.name)}</div>
+        <div class="event-desc">${esc(ev.description || ev.desc || "")}</div>
+        ${ev.location ? `<div class="event-meta">📍 ${esc(ev.location)}</div>` : ""}
+      </div>
+    </div>`;
+  }).join("");
+}
+
+function renderLoansHome() {
+  const el = g("loans-list");
+  if (!STATE.loans.length) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-icon">📚</div><div class="empty-text">No books currently borrowed</div></div>';
+    return;
+  }
+  el.innerHTML = STATE.loans.map(loan => loanItemHTML(loan)).join("");
+}
+
+function loanItemHTML(loan) {
+  const due = loan.dueDate?.toDate?.();
+  const diff = due ? Math.ceil((due - new Date()) / 86400000) : null;
+  let color = "var(--green-dark)", badge = "Active", badgeBg = "rgba(46,204,113,0.15)";
+  if (diff !== null) {
+    if (diff < 0)  { color = "var(--red)";  badge = `${Math.abs(diff)}d overdue`; badgeBg = "rgba(231,76,60,0.12)"; }
+    else if (diff === 0) { color = "var(--red)"; badge = "Due today"; badgeBg = "rgba(231,76,60,0.12)"; }
+    else if (diff <= 3)  { color = "var(--sand)"; badge = `Due in ${diff}d`; badgeBg = "rgba(184,144,42,0.12)"; }
+    else { badge = `Due in ${diff}d`; badgeBg = "rgba(46,204,113,0.12)"; }
+  }
+  const dateStr = due ? due.toLocaleDateString("en-PH", { month: "short", day: "2-digit", year: "numeric" }) : "—";
+  return `
+  <div class="loan-item">
+    <div class="loan-accent" style="background:${color}"></div>
+    <div class="loan-body">
+      <div class="loan-title">${esc(loan.bookTitle || loan.bookId)}</div>
+      <div class="loan-sub">Borrowed · Due ${dateStr}</div>
+    </div>
+    <div class="loan-badge" style="background:${badgeBg};color:${color}">${badge}</div>
+  </div>`;
+}
+
+// ═══════════════════════════════════════════════
+// BOOKS SCREEN
+// ═══════════════════════════════════════════════
+function bindBookSearch() {
+  g("book-search").addEventListener("input", e => {
+    STATE.bookSearch = e.target.value;
+    g("search-clear").classList.toggle("hidden", !e.target.value);
+    renderBooks();
+  });
+  g("search-clear").addEventListener("click", () => {
+    g("book-search").value = "";
+    STATE.bookSearch = "";
+    g("search-clear").classList.add("hidden");
+    renderBooks();
+  });
+  document.querySelectorAll(".filter-chip").forEach(chip => {
+    chip.addEventListener("click", () => {
+      document.querySelectorAll(".filter-chip").forEach(c => c.classList.remove("active"));
+      chip.classList.add("active");
+      STATE.bookFilter = chip.dataset.filter;
+      renderBooks();
+    });
+  });
+  g("view-toggle").addEventListener("click", () => {
+    STATE.bookView = STATE.bookView === "grid" ? "list" : "grid";
+    g("view-toggle").textContent = STATE.bookView === "grid" ? "☰" : "⊞";
+    renderBooks();
+  });
+}
+
+function renderBooks() {
+  const q = STATE.bookSearch.toLowerCase();
+  let books = STATE.books.filter(b => {
+    const matchSearch = !q || b.title?.toLowerCase().includes(q) || b.author?.toLowerCase().includes(q) || b.isbn?.includes(q);
+    const avail = b.available || 0;
+    const matchFilter = STATE.bookFilter === "all" ? true : STATE.bookFilter === "available" ? avail > 0 : avail === 0;
+    return matchSearch && matchFilter;
+  });
+
+  const countEl = g("book-count");
+  if (countEl) countEl.textContent = `${books.length} book${books.length !== 1 ? "s" : ""}`;
+
+  const el = g("books-grid");
+  if (!books.length) {
+    el.className = "";
+    el.innerHTML = '<div class="empty-state"><div class="empty-icon">🔍</div><div class="empty-text">No books found</div></div>';
+    return;
+  }
+
+  if (STATE.bookView === "grid") {
+    el.className = "book-grid";
+    el.innerHTML = books.map(b => {
+      const avail = b.available || 0;
+      return `
+      <div class="book-card" onclick="openBookDetail('${b.id}')">
+        <div class="book-cover">
+          ${b.coverImage ? `<img src="${esc(b.coverImage)}" alt="" loading="lazy">` : "📖"}
+          <div class="avail-badge" style="background:${avail > 0 ? "var(--green)" : "var(--red)"}">
+            ${avail > 0 ? "Available" : "Out"}
+          </div>
+        </div>
+        <div class="book-info">
+          <div class="book-title">${esc(b.title)}</div>
+          <div class="book-author">${esc(b.author || "")}</div>
+        </div>
+      </div>`;
+    }).join("");
+  } else {
+    el.className = "";
+    el.innerHTML = books.map(b => {
+      const avail = b.available || 0;
+      const aBg = avail > 0 ? "rgba(46,204,113,0.12)" : "rgba(231,76,60,0.12)";
+      const aClr = avail > 0 ? "var(--green-dark)" : "var(--red)";
+      return `
+      <div class="book-list-item" onclick="openBookDetail('${b.id}')">
+        <div class="book-list-thumb">
+          ${b.coverImage ? `<img src="${esc(b.coverImage)}" alt="" loading="lazy">` : "📖"}
+        </div>
+        <div class="book-list-info">
+          <div class="book-list-title">${esc(b.title)}</div>
+          <div class="book-list-author">${esc(b.author || "")}</div>
+          <div class="avail-pill" style="background:${aBg}">
+            <div class="avail-dot" style="background:${avail > 0 ? "var(--green)" : "var(--red)"}"></div>
+            <span style="color:${aClr};font-size:10px;font-weight:600">${avail > 0 ? avail + " available" : "Checked out"}</span>
+          </div>
+        </div>
+        <span style="color:var(--text-light);font-size:18px">›</span>
+      </div>`;
+    }).join("");
+  }
+}
+
+window.openBookDetail = function(bookId) {
+  const book = STATE.books.find(b => b.id === bookId);
+  if (!book) return;
+  STATE.selectedBook = book;
+  const avail = book.available || 0;
+
+  g("detail-cover-inner").innerHTML = book.coverImage ? `<img src="${esc(book.coverImage)}" alt="">` : "📖";
+  g("detail-title").textContent  = book.title || "";
+  g("detail-author").textContent = book.author ? `by ${book.author}` : "";
+
+  // Meta chips
+  const chips = [];
+  if (book.isbn)     chips.push(`<div class="detail-chip">🔖 ${esc(book.isbn)}</div>`);
+  if (book.category) chips.push(`<div class="detail-chip">📂 ${esc(book.category)}</div>`);
+  if (book.location) chips.push(`<div class="detail-chip">📍 ${esc(book.location)}</div>`);
+  g("detail-meta-chips").innerHTML = chips.join("");
+
+  g("detail-avail-num").textContent  = avail;
+  g("detail-total-num").textContent  = book.total || avail;
+  g("detail-onloan-num").textContent = (book.total || avail) - avail;
+  g("detail-desc").textContent = book.description || book.desc || "";
+  g("detail-desc").style.display = (book.description || book.desc) ? "" : "none";
+
+  const actionEl = g("detail-action");
+  if (avail > 0) {
+    actionEl.innerHTML = `<button class="btn-borrow" onclick="openBorrowConfirm('${book.id}')">📖 Borrow this Book</button>
+    <div class="borrow-note">ℹ️ Visit the library counter with your student ID to complete the borrowing process.</div>`;
+  } else {
+    actionEl.innerHTML = `<button class="btn-reserve" onclick="doReserve('${book.id}')">🔔 Reserve — Notify When Available</button>`;
+  }
+
+  g("book-detail-overlay").classList.add("open");
+  document.body.style.overflow = "hidden";
+};
+
+g("book-detail-overlay").addEventListener("click", e => {
+  if (e.target === g("book-detail-overlay")) closeBookDetail();
+});
+g("detail-close").addEventListener("click", closeBookDetail);
+
+function closeBookDetail() {
+  g("book-detail-overlay").classList.remove("open");
+  document.body.style.overflow = "";
+}
+
+// ── Borrow Confirmation ──
+window.openBorrowConfirm = function(bookId) {
+  const book = STATE.books.find(b => b.id === bookId);
+  if (!book) return;
+  STATE.borrowBook = book;
+
+  const dueDate = new Date();
+  dueDate.setDate(dueDate.getDate() + 14);
+  const dueDateStr = dueDate.toLocaleDateString("en-PH", { month: "long", day: "2-digit", year: "numeric" });
+
+  g("confirm-book-cover").innerHTML = book.coverImage ? `<img src="${esc(book.coverImage)}" style="height:80px;border-radius:8px;margin:0 auto">` : "📖";
+  g("confirm-book-title").textContent  = book.title;
+  g("confirm-book-author").textContent = book.author ? `by ${book.author}` : "";
+  g("confirm-due-date").textContent    = dueDateStr;
+
+  g("borrow-confirm-overlay").classList.add("open");
+};
+
+g("borrow-confirm-overlay").addEventListener("click", e => {
+  if (e.target === g("borrow-confirm-overlay")) g("borrow-confirm-overlay").classList.remove("open");
+});
+g("borrow-cancel").addEventListener("click", () => g("borrow-confirm-overlay").classList.remove("open"));
+
+g("borrow-confirm-btn").addEventListener("click", async () => {
+  const book = STATE.borrowBook;
+  if (!book) return;
+  const student = STATE.student;
+  const sid = student.studentId || student.id;
+
+  // Eligibility checks
+  if (STATE.loans.length >= 5) { showToast("You have reached the 5-book borrow limit.", "error"); return; }
+  const hasOverdue = STATE.loans.some(l => { const d = l.dueDate?.toDate?.(); return d && d < new Date(); });
+  if (hasOverdue) { showToast("Please return your overdue books first.", "error"); return; }
+
+  const btn = g("borrow-confirm-btn");
+  btn.innerHTML = '<span class="spinner"></span>';
+  btn.disabled = true;
+
+  try {
+    const dueDate = new Date(); dueDate.setDate(dueDate.getDate() + 14);
+    await addDoc(collection(db, "loans"), {
+      studentId:   sid,
+      studentName: student.name || "",
+      bookId:      book.id,
+      bookTitle:   book.title,
+      borrowDate:  serverTimestamp(),
+      dueDate,
+      returned:    false,
+      status:      "borrowed",
+    });
+    // Decrement availability
+    if (book.available > 0) {
+      await updateDoc(doc(db, "books", book.id), { available: book.available - 1 });
+      book.available--;
+    }
+    await loadLoans();
+    g("borrow-confirm-overlay").classList.remove("open");
+    closeBookDetail();
+    showToast(`"${book.title}" borrowed! Due ${dueDate.toLocaleDateString("en-PH", {month:"short",day:"2-digit"})}`, "success");
+    renderHome();
+  } catch (e) {
+    showToast("Borrow failed: " + e.message, "error");
+  } finally {
+    btn.innerHTML = "✅ Confirm Borrow";
+    btn.disabled = false;
+  }
+});
+
+window.doReserve = async function(bookId) {
+  const book = STATE.books.find(b => b.id === bookId);
+  if (!book) return;
+  const student = STATE.student;
+  const sid = student.studentId || student.id;
+
+  try {
+    // Check if already reserved
+    const existing = await getDocs(query(collection(db, "reservations"), where("studentId", "==", sid), where("bookId", "==", bookId), where("status", "==", "pending")));
+    if (!existing.empty) { showToast("You already have a reservation for this book.", "error"); return; }
+
+    await addDoc(collection(db, "reservations"), {
+      studentId:   sid,
+      studentName: student.name || "",
+      bookId,
+      bookTitle:   book.title,
+      status:      "pending",
+      requestedAt: serverTimestamp(),
+    });
+    showToast(`Reserved! You'll be notified when "${book.title}" is available.`, "success");
+    closeBookDetail();
+  } catch (e) {
+    showToast("Reservation failed. Please try again.", "error");
+  }
+};
+
+// ═══════════════════════════════════════════════
+// VISIT MODAL (Auto pop-up + tab)
+// ═══════════════════════════════════════════════
+function bindVisitModal() {
+  const modal = g("visit-modal");
+
+  // Purpose buttons
+  modal.querySelectorAll(".modal-purpose-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+      modal.querySelectorAll(".modal-purpose-btn").forEach(b => b.classList.remove("selected"));
+      btn.classList.add("selected");
+      STATE.visitPurpose = btn.dataset.purpose;
+      g("modal-other-section").style.display = STATE.visitPurpose === "other" ? "block" : "none";
+      g("modal-submit-btn").disabled = false;
+    });
+  });
+
+  // Other textarea
+  g("modal-other-text").addEventListener("input", e => { STATE.visitCustom = e.target.value; });
+
+  // Submit
+  g("modal-submit-btn").addEventListener("click", async () => {
+    if (!STATE.visitPurpose) return;
+    if (STATE.visitPurpose === "other" && !STATE.visitCustom.trim()) {
+      showToast("Please describe your purpose.", "error"); return;
+    }
+    const btn = g("modal-submit-btn");
+    btn.innerHTML = '<span class="spinner"></span>';
+    btn.disabled = true;
+
+    try {
+      const student = STATE.student;
+      const sid = student?.studentId || student?.id || STATE.user.uid;
+      const purpose = STATE.visitPurpose === "other"
+        ? (STATE.visitCustom.trim() || "Other")
+        : PURPOSES.find(p => p.id === STATE.visitPurpose)?.label || STATE.visitPurpose;
+
+      await logVisit({
+        studentId:   sid,
+        studentName: student?.name || "",
+        purpose,
+        customReason: STATE.visitCustom.trim(),
+      });
+
+      STATE.visits.unshift({ purpose, date: new Date().toISOString().slice(0, 10) });
+      closeVisitModal();
+      showToast(`Purpose logged: ${purpose} ✓`, "success");
+    } catch (e) {
+      showToast("Could not save visit: " + e.message, "error");
+      btn.innerHTML = "Submit →";
+      btn.disabled = false;
+    }
+  });
+
+  // Close button (optional dismiss)
+  g("modal-close-btn").addEventListener("click", closeVisitModal);
+
+  // Quick action — Visit Library
+  g("qa-visit").addEventListener("click", () => openVisitModal(false));
+}
+
+function openVisitModal(isAutoPopup) {
+  // Reset
+  STATE.visitPurpose = null;
+  STATE.visitCustom  = "";
+  g("visit-modal").querySelectorAll(".modal-purpose-btn").forEach(b => b.classList.remove("selected"));
+  g("modal-other-section").style.display = "none";
+  g("modal-other-text").value = "";
+  g("modal-submit-btn").disabled = true;
+  g("modal-submit-btn").innerHTML = "Submit →";
+
+  // If auto popup, hide close button to encourage selection
+  g("modal-close-btn").style.display = isAutoPopup ? "none" : "flex";
+
+  g("visit-modal").classList.add("open");
+  document.body.style.overflow = "hidden";
+}
+
+function closeVisitModal() {
+  g("visit-modal").classList.remove("open");
+  document.body.style.overflow = "";
+}
+
+// ═══════════════════════════════════════════════
+// VISIT SCREEN (tab)
+// ═══════════════════════════════════════════════
+function renderVisitPage() {
+  // Purpose buttons in the Visit tab
+  const grid = g("visit-purpose-grid");
+  if (!grid._bound) {
+    grid.querySelectorAll(".purpose-card").forEach(card => {
+      card.addEventListener("click", () => {
+        grid.querySelectorAll(".purpose-card").forEach(c => c.classList.remove("selected"));
+        card.classList.add("selected");
+        STATE.visitPurpose = card.dataset.purpose;
+        g("visit-other-section").style.display = STATE.visitPurpose === "other" ? "block" : "none";
+        g("visit-submit-btn").disabled = false;
+      });
+    });
+    g("visit-other-textarea").addEventListener("input", e => { STATE.visitCustom = e.target.value; });
+    g("visit-submit-btn").addEventListener("click", handleVisitSubmit);
+    grid._bound = true;
+  }
+  // Reset
+  grid.querySelectorAll(".purpose-card").forEach(c => c.classList.remove("selected"));
+  g("visit-other-section").style.display = "none";
+  g("visit-submit-btn").disabled = true;
+  g("visit-qr-section").style.display = "none";
+  g("visit-form-section").style.display = "block";
+}
+
+async function handleVisitSubmit() {
+  if (!STATE.visitPurpose) return;
+  const btn = g("visit-submit-btn");
+  btn.innerHTML = '<span class="spinner"></span>';
+  btn.disabled = true;
+
+  const student = STATE.student;
+  const sid = student?.studentId || student?.id || STATE.user.uid;
+  const purpose = STATE.visitPurpose === "other"
+    ? (STATE.visitCustom.trim() || "Other")
+    : PURPOSES.find(p => p.id === STATE.visitPurpose)?.label || STATE.visitPurpose;
+
+  try {
+    await logVisit({ studentId: sid, studentName: student?.name || "", purpose, customReason: STATE.visitCustom.trim() });
+    STATE.visits.unshift({ purpose, date: new Date().toISOString().slice(0, 10) });
+
+    // Show QR code
+    g("visit-form-section").style.display = "none";
+    g("visit-qr-section").style.display   = "block";
+    g("qr-purpose-label").textContent = `Purpose: ${purpose}`;
+
+    const payload = buildQRPayload(STATE.user, purpose);
+    renderQR("qr-container", payload);
+    startQRTimer();
+
+    btn.innerHTML = "Submit →";
+    btn.disabled = false;
+  } catch (e) {
+    showToast("Error: " + e.message, "error");
+    btn.innerHTML = "Submit →";
+    btn.disabled  = false;
+  }
+}
+
+function startQRTimer() {
+  if (STATE.qrTimer) clearInterval(STATE.qrTimer);
+  STATE.qrSeconds = 300;
+  updateQRTimer();
+  STATE.qrTimer = setInterval(() => {
+    STATE.qrSeconds--;
+    updateQRTimer();
+    if (STATE.qrSeconds <= 0) {
+      clearInterval(STATE.qrTimer);
+      g("qr-time-display").textContent = "Expired";
+      g("qr-time-display").style.color = "var(--red)";
+    }
+  }, 1000);
+}
+
+function updateQRTimer() {
+  const s  = STATE.qrSeconds;
+  const m  = Math.floor(s / 60);
+  const sc = s % 60;
+  const pct = (s / 300) * 100;
+  const color = s <= 60 ? "var(--red)" : s <= 120 ? "var(--sand)" : "var(--green)";
+  g("qr-progress-fill").style.width = pct + "%";
+  g("qr-progress-fill").style.background = color;
+  g("qr-time-display").textContent = `${m}:${String(sc).padStart(2,"0")}`;
+  g("qr-time-display").style.color = color;
+}
+
+g("btn-regen").addEventListener("click", () => {
+  const purpose = g("qr-purpose-label").textContent.replace("Purpose: ", "");
+  const payload  = buildQRPayload(STATE.user, purpose);
+  renderQR("qr-container", payload);
+  startQRTimer();
+  showToast("New QR code generated", "success");
+});
+
+g("btn-new-visit").addEventListener("click", () => {
+  g("visit-qr-section").style.display = "none";
+  g("visit-form-section").style.display = "block";
+  renderVisitPage();
+});
+
+// ═══════════════════════════════════════════════
+// ACCOUNT SCREEN
+// ═══════════════════════════════════════════════
+function bindAccountTabs() {
+  document.querySelectorAll(".acct-tab").forEach(tab => {
+    tab.addEventListener("click", () => {
+      document.querySelectorAll(".acct-tab").forEach(t => t.classList.remove("active"));
+      tab.classList.add("active");
+      STATE.accountTab = tab.dataset.tab;
+      renderAccountContent();
+    });
+  });
+}
+
+function renderAccount() {
+  const s = STATE.student || {};
+  const name = s.name || STATE.user?.email?.split("@")[0] || "Student";
+  const initials = name.split(" ").map(w => w[0] || "").join("").slice(0, 2).toUpperCase();
+
+  g("acct-avatar").textContent = initials;
+  g("acct-name").textContent   = name;
+  g("acct-meta").textContent   = [s.course, s.yearLevel, s.studentId].filter(Boolean).join(" · ");
+
+  renderAccountContent();
+}
+
+function renderAccountContent() {
+  const tab = STATE.accountTab;
+  document.querySelectorAll(".acct-panel").forEach(p => p.classList.toggle("hidden", p.dataset.panel !== tab));
+
+  if (tab === "loans")   renderAccountLoans();
+  if (tab === "history") renderAccountHistory();
+  if (tab === "visits")  renderAccountVisits();
+  if (tab === "profile") renderAccountProfile();
+}
+
+function renderAccountLoans() {
+  const FINE_RATE = 5;
+  const el = g("acct-loans");
+  const totalFines = STATE.loans.reduce((sum, l) => {
+    const d = l.dueDate?.toDate?.();
+    if (!d || d >= new Date()) return sum;
+    return sum + Math.floor((new Date() - d) / 86400000) * FINE_RATE;
+  }, 0);
+
+  let html = "";
+  if (totalFines > 0) {
+    html += `<div class="fine-alert mb-14">
+      <div class="fine-alert-ico">⚠️</div>
+      <div class="fine-alert-txt">You have outstanding fines of <strong>₱${totalFines}</strong>. Please settle at the library counter.</div>
+    </div>`;
+  }
+  if (!STATE.loans.length) {
+    html += '<div class="empty-state"><div class="empty-icon">📚</div><div class="empty-text">No books currently borrowed</div></div>';
+  } else {
+    html += '<div class="card"><div class="card-body" style="padding:0 16px">' + STATE.loans.map(loanItemHTML).join("") + "</div></div>";
+  }
+  el.innerHTML = html;
+}
+
+function renderAccountHistory() {
+  const el = g("acct-history");
+  if (!STATE.history.length) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-icon">📋</div><div class="empty-text">No borrowing history yet</div></div>';
+    return;
+  }
+  el.innerHTML = '<div class="card"><div class="card-body" style="padding:0 16px">' +
+    STATE.history.map(h => `
+    <div class="history-item">
+      <div class="hist-icon" style="background:rgba(46,204,113,0.12)">✅</div>
+      <div class="hist-body">
+        <div class="hist-title">${esc(h.bookTitle || h.bookId)}</div>
+        <div class="hist-meta">${h.borrowDate?.toDate?.()?.toLocaleDateString("en-PH",{month:"short",day:"2-digit",year:"numeric"}) || "—"} → ${h.returnDate?.toDate?.()?.toLocaleDateString("en-PH",{month:"short",day:"2-digit",year:"numeric"}) || "—"}</div>
+      </div>
+      <div class="hist-badge" style="background:rgba(46,204,113,0.12);color:var(--green-dark)">Returned</div>
+    </div>`).join("") + "</div></div>";
+}
+
+function renderAccountVisits() {
+  const el = g("acct-visits");
+  if (!STATE.visits.length) {
+    el.innerHTML = '<div class="empty-state"><div class="empty-icon">📅</div><div class="empty-text">No visit history yet</div></div>';
+    return;
+  }
+  const EMOJI = { study:"📚", research:"🔍", borrow:"📖", computer:"💻", group:"👥", other:"✏️" };
+  el.innerHTML = '<div class="card"><div class="card-body" style="padding:0 16px">' +
+    STATE.visits.slice(0, 20).map(v => {
+      const ts = v.timestamp?.toDate?.()?.toLocaleString("en-PH", { month: "short", day: "2-digit", year: "numeric", hour: "2-digit", minute: "2-digit" }) || v.date || "—";
+      const purposeKey = Object.keys(EMOJI).find(k => v.purpose?.toLowerCase().includes(k)) || "other";
+      return `
+      <div class="history-item">
+        <div class="hist-icon" style="background:rgba(58,111,216,0.10)">${EMOJI[purposeKey] || "📅"}</div>
+        <div class="hist-body">
+          <div class="hist-title">${esc(v.purpose || "Library Visit")}</div>
+          <div class="hist-meta">${esc(ts)}</div>
+        </div>
+        <div class="hist-badge" style="background:${v.checkedIn?"rgba(46,204,113,0.12)":"rgba(184,144,42,0.12)"};color:${v.checkedIn?"var(--green-dark)":"var(--sand)"}">
+          ${v.checkedIn ? "Checked in" : "Logged"}
+        </div>
+      </div>`;
+    }).join("") + "</div></div>";
+}
+
+function renderAccountProfile() {
+  const s = STATE.student || {};
+  const el = g("acct-profile");
+  const rows = [
+    ["Student ID", s.studentId || s.id || "—"],
+    ["Name",       s.name || "—"],
+    ["Email",      s.email || STATE.user?.email || "—"],
+    ["Course",     s.course || "—"],
+    ["Year Level", s.yearLevel || "—"],
+  ];
+  el.innerHTML = `
+    <div class="card mb-14">
+      <div class="card-body" style="padding:0 16px">
+        ${rows.map(([l, v]) => `<div class="profile-row"><div class="profile-lbl">${l}</div><div class="profile-val">${esc(String(v))}</div></div>`).join("")}
+      </div>
+    </div>
+    <button class="btn-primary" onclick="handleLogout()" style="background:var(--red)">🔓 Sign Out</button>`;
+}
+
+window.handleLogout = handleLogout;
+
+// ═══════════════════════════════════════════════
+// TOAST
+// ═══════════════════════════════════════════════
+let toastTimer;
+function showToast(msg, type = "") {
+  const el = g("toast");
+  el.textContent = msg;
+  el.className = `toast ${type}`;
+  clearTimeout(toastTimer);
+  requestAnimationFrame(() => { el.classList.add("show"); });
+  toastTimer = setTimeout(() => el.classList.remove("show"), 3200);
+}
+
+// ═══════════════════════════════════════════════
+// UTILS
+// ═══════════════════════════════════════════════
+function g(id) { return document.getElementById(id); }
+function esc(s) { return String(s ?? "").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;"); }
+
+// Quick-action bindings (deferred so DOM is ready)
+document.addEventListener("DOMContentLoaded", () => {
+  const qa = (id, action) => { const el = document.getElementById(id); if(el) el.addEventListener("click", action); };
+  qa("qa-search",  () => { navTo("books"); setTimeout(() => document.getElementById("book-search")?.focus(), 200); });
+  qa("qa-browse",  () => navTo("books"));
+  qa("qa-arrivals",() => { navTo("books"); document.querySelectorAll(".filter-chip").forEach(c => { c.classList.toggle("active", c.dataset.filter === "available"); }); STATE.bookFilter = "available"; renderBooks(); });
+});
+
+// ═══════════════════════════════════════════════
+// REGISTER SCREEN
+// ═══════════════════════════════════════════════
+function showRegister() {
+  g("screen-login").classList.remove("active");
+  g("screen-app").classList.remove("active");
+  g("screen-register").classList.add("active");
+  // Reset register form
+  ["reg-name","reg-studentid","reg-email","reg-pass","reg-pass2"].forEach(id => { const el = g(id); if(el) el.value = ""; });
+  const course = g("reg-course"); if(course) course.value = "";
+  const year   = g("reg-year");   if(year)   year.value   = "";
+  g("reg-terms-box").classList.remove("on");
+  g("reg-submit-btn").disabled = true;
+  document.querySelectorAll(".field-error").forEach(e => e.classList.remove("show"));
+  g("strength-fill").style.width = "0";
+  g("strength-label").textContent = "";
+}
+
+function showLoginFromRegister() {
+  g("screen-register").classList.remove("active");
+  g("screen-login").classList.add("active");
+}
+
+function bindRegisterForm() {
+  // Navigation
+  const backBtn    = g("reg-back-btn");
+  const gotoLogin  = g("goto-login-btn");
+  const gotoReg    = g("goto-register-btn");
+  const termsWrap  = g("reg-terms-wrap");
+  const termsBox   = g("reg-terms-box");
+  const regEye     = g("reg-eye");
+  const submitBtn  = g("reg-submit-btn");
+
+  if (backBtn)   backBtn.addEventListener("click", showLoginFromRegister);
+  if (gotoLogin) gotoLogin.addEventListener("click", showLoginFromRegister);
+  if (gotoReg)   gotoReg.addEventListener("click", showRegister);
+
+  let termsAccepted = false;
+  if (termsWrap) {
+    termsWrap.addEventListener("click", () => {
+      termsAccepted = !termsAccepted;
+      termsBox.classList.toggle("on", termsAccepted);
+      validateRegForm();
+    });
+  }
+
+  if (regEye) {
+    regEye.addEventListener("click", () => {
+      const inp = g("reg-pass");
+      const show = inp.type === "password";
+      inp.type = show ? "text" : "password";
+      regEye.textContent = show ? "🙈" : "👁️";
+    });
+  }
+
+  // Live validation
+  ["reg-name","reg-studentid","reg-email","reg-pass","reg-pass2","reg-course","reg-year"].forEach(id => {
+    const el = g(id);
+    if (el) el.addEventListener("input", validateRegForm);
+    if (el && el.tagName === "SELECT") el.addEventListener("change", validateRegForm);
+  });
+
+  function validateRegForm() {
+    const name   = g("reg-name").value.trim();
+    const sid    = g("reg-studentid").value.trim();
+    const course = g("reg-course").value;
+    const year   = g("reg-year").value;
+    const email  = g("reg-email").value.trim();
+    const pass   = g("reg-pass").value;
+    const pass2  = g("reg-pass2").value;
+    const ok = name && sid && course && year && email && pass.length >= 8 && pass === pass2 && termsAccepted;
+    submitBtn.disabled = !ok;
+  }
+
+  if (submitBtn) {
+    submitBtn.addEventListener("click", async () => {
+      const name   = g("reg-name").value.trim();
+      const sid    = g("reg-studentid").value.trim();
+      const course = g("reg-course").value;
+      const year   = g("reg-year").value;
+      const email  = g("reg-email").value.trim();
+      const pass   = g("reg-pass").value;
+      const pass2  = g("reg-pass2").value;
+
+      // Show inline errors
+      const show = (id, errId, cond) => { g(errId)?.classList.toggle("show", !cond); return cond; };
+      let valid = true;
+      if (!show("reg-name",      "err-name",      name))      valid = false;
+      if (!show("reg-studentid", "err-studentid", sid))       valid = false;
+      if (!show("reg-course",    "err-course",    course))    valid = false;
+      if (!show("reg-year",      "err-year",      year))      valid = false;
+      if (!show("reg-email",     "err-email",     email.includes("@"))) valid = false;
+      if (!show("reg-pass",      "err-pass",      pass.length >= 8))   valid = false;
+      if (!show("reg-pass2",     "err-pass2",     pass === pass2))      valid = false;
+      if (!valid) return;
+
+      submitBtn.innerHTML = '<span class="spinner"></span>';
+      submitBtn.disabled  = true;
+
+      try {
+        // Create Firebase Auth account
+        const cred = await createUserWithEmailAndPassword(auth, email, pass);
+        await updateProfile(cred.user, { displayName: name });
+
+        // Create Firestore student document
+        await setDoc(doc(db, "students", cred.user.uid), {
+          name,
+          studentId: sid,
+          course,
+          yearLevel: year,
+          email,
+          uid:       cred.user.uid,
+          createdAt: new Date().toISOString(),
+          status:    "active",
+        });
+
+        showToast("Account created! Welcome, " + name.split(" ")[0] + "! 🎉", "success");
+        // onAuthStateChanged will fire and call showApp() automatically
+      } catch (err) {
+        submitBtn.innerHTML = "Create Account &nbsp;→";
+        submitBtn.disabled  = false;
+        const msgs = {
+          "auth/email-already-in-use": "This email is already registered. Try signing in.",
+          "auth/invalid-email":        "Please enter a valid email address.",
+          "auth/weak-password":        "Password is too weak. Use at least 8 characters.",
+          "auth/network-request-failed": "Network error. Check your connection.",
+        };
+        showToast(msgs[err.code] || ("Registration failed: " + (err.code || err.message)), "error");
+        console.error("Register error:", err.code, err.message);
+      }
+    });
+  }
+}
+
+window.checkPasswordStrength = function(pass) {
+  const fill  = g("strength-fill");
+  const label = g("strength-label");
+  if (!fill || !label) return;
+  let score = 0;
+  if (pass.length >= 8)                             score++;
+  if (pass.length >= 12)                            score++;
+  if (/[A-Z]/.test(pass) && /[a-z]/.test(pass))    score++;
+  if (/[0-9]/.test(pass))                           score++;
+  if (/[^A-Za-z0-9]/.test(pass))                   score++;
+  const levels = [
+    { w:"0%",    color:"var(--beige-dark)",  text:"" },
+    { w:"25%",   color:"var(--red)",         text:"Weak" },
+    { w:"50%",   color:"var(--sand)",        text:"Fair" },
+    { w:"75%",   color:"#f1c40f",            text:"Good" },
+    { w:"100%",  color:"var(--green)",       text:"Strong" },
+  ];
+  const lvl = levels[Math.min(score, 4)];
+  fill.style.width      = lvl.w;
+  fill.style.background = lvl.color;
+  label.textContent     = lvl.text;
+  label.style.color     = lvl.color;
+};

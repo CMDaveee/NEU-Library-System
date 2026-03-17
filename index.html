@@ -131,10 +131,13 @@
     }
 
     /* ── Portal cards ── */
-    .portals {
-      display: flex;
-      gap: 14px;
-      flex-wrap: nowrap;
+   .portals {
+    display: flex;
+    gap: 14px;
+    flex-wrap: nowrap;
+    flex-direction: column;
+    width: 100%;
+    max-width: 600px;  /* Optional: control max width */
     }
 .portal-card {
     text-decoration: none;
@@ -146,8 +149,8 @@
     transition: transform 0.22s ease, box-shadow 0.22s ease, background 0.22s ease;
     position: relative;
     overflow: hidden;
-    width: 260px;  /* Fixed width - both cards exactly the same */
-}
+    min-width: 260px;
+    width: 100%;  /* Takes full width of parent */
 }
     .portal-card::before {
       content: '';
